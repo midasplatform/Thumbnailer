@@ -28,9 +28,16 @@
 // ITK Includes
 #include "metaCommand.h"
 
-// Simp
+// SimpleITK Namespace
 namespace sitk = itk::simple;
 
+/** When the user asks for help, we want to exit once the help is done. **/
+void helpCallback()
+{
+  exit(0);
+}
+
+/** Main code goes here. */
 int main(int argc, char* argv[])
 {
 
@@ -42,9 +49,22 @@ int main(int argc, char* argv[])
   command.SetDescription("Generate a thumbnail from a 2D or 3D image");
   command.AddField("InputFile", "Input File", MetaCommand::STRING);
   command.AddField("OutputFile", "Output Thumbnail", MetaCommand::STRING);
+
+  // The default behavior is to return the medial slice of a 3D image; however,
+  // a lot of folks prefer a Orthographic Maximum Intensity Projection through
+  // the image (MIP).
+  command.SetOption("MIP", "m", false, "Output the Maximum Intensity Projection.",
+                    MetaCommand::FLAG);
+  command.SetOptionLongTag("MIP", "mip");
+
+  // Loud is a really bad name. I wanted verbose, but MetaCommand hijacks it.
   command.SetOption("Loud", "l", false, "Output with extreme verbosity.",
                     MetaCommand::FLAG);
   command.SetOptionLongTag("Loud", "loud");
+
+  // We want to immediately exist after printing help
+  command.SetHelpCallBack(helpCallback);
+
   if(!command.Parse(argc, argv))
     {
     return 1;
@@ -53,18 +73,16 @@ int main(int argc, char* argv[])
   std::string inputImage = command.GetValueAsString("InputFile");
   std::string outputImage = command.GetValueAsString("OutputFile");
   bool loud = command.GetValueAsBool("Loud");
+  bool mip = command.GetValueAsBool("MIP");
 
   sitk::ImageFileReader                reader;
-  sitk::RescaleIntensityImageFilter    rescaler;
   sitk::ImageFileWriter                writer;
   sitk::ExtractImageFilter             extractor;
-  sitk::CastImageFilter                caster;
   sitk::ScalarToRGBColormapImageFilter colorizer;
+  sitk::MaximumProjectionImageFilter   mipper;
 
   sitk::Image image;
   sitk::Image slice;
-  sitk::Image rescaledImage;
-  sitk::Image castImage;
   sitk::Image colorImage;
 
   std::vector<unsigned int> size;
@@ -87,6 +105,15 @@ int main(int argc, char* argv[])
     if( loud )
       {
       std::cout << "-- The input image is 3D." << std::endl;
+      }
+    if( mip )
+      {
+      if( loud )
+        {
+        std::cout << "-- Generating the MIP." << std::endl;
+        }
+      mipper.SetProjectionDimension(2);
+      image = mipper.Execute( image );
       }
     size = image.GetSize();
     int middleOfTheImageInZ = size[2] / 2;
@@ -116,29 +143,12 @@ int main(int argc, char* argv[])
 
   if( loud )
     {
-    std::cout << "-- Rescaling image intensities between 0 and 255."
-              << std::endl;
-    }
-  rescaler.SetOutputMinimum( 0 );
-  rescaler.SetOutputMaximum( 255 );
-  rescaledImage = rescaler.Execute( slice );
-
-  if( loud )
-    {
-    std::cout << "-- Cast the image into a uint_8 (unsigned char)."
-              << std::endl;
-    }
-  caster.SetOutputPixelType( sitk::sitkUInt8 );
-  castImage = caster.Execute( rescaledImage );
-
-  if( loud )
-    {
     std::cout << "-- Convert the image into RGB for JPEG ouput. This "
               << "application does not require JPEGs, but JPEGs require RGB "
               << "for ITK to output them correctly." << std::endl;
     }
   colorizer.SetColormap(  sitk::ScalarToRGBColormapImageFilter::Grey );
-  colorImage = colorizer.Execute( castImage );
+  colorImage = colorizer.Execute( slice );
 
   if( loud )
     {
